@@ -1,0 +1,43 @@
+module Test where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Department
+import Patient
+import Record
+
+setup : Script ()
+setup = script do
+  hospital   <- allocatePartyWithHint "GeneralHospital" (PartyIdHint "GeneralHospital")
+  oncology   <- allocatePartyWithHint "OncologyDept"    (PartyIdHint "OncologyDept")
+  derm       <- allocatePartyWithHint "DermatologyDept" (PartyIdHint "DermatologyDept")
+  drAlice    <- allocatePartyWithHint "DrAlice"         (PartyIdHint "DrAlice")
+  drBarbara  <- allocatePartyWithHint "DrBarbara"       (PartyIdHint "DrBarbara")
+  drBob      <- allocatePartyWithHint "DrBob"           (PartyIdHint "DrBob")
+  patientPat <- allocatePartyWithHint "PatientPat"      (PartyIdHint "PatientPat")
+
+  deptOnc <- submit oncology (createCmd Department with department = oncology, hospital, name = "Oncology")
+  deptDer <- submit derm     (createCmd Department with department = derm,     hospital, name = "Dermatology")
+  _ <- submit oncology (exerciseCmd deptOnc AddDoctor with admin = oncology, doctor = drAlice)
+  _ <- submit oncology (exerciseCmd deptOnc AddDoctor with admin = oncology, doctor = drBarbara)
+  _ <- submit derm     (exerciseCmd deptDer AddDoctor with admin = derm,     doctor = drBob)
+
+  _ <- submit patientPat (createCmd PatientProfile with patient = patientPat, name = "Pat Doe", birthday = date 1990 Jan 01)
+  _ <- submitMulti [hospital, patientPat] [] (createCmd PatientEnrollment with hospital, patient = patientPat)
+
+  recOnc <- submitMulti [hospital, patientPat] [] (createCmd MedicalRecord with recordId = "rec-onc-001", hospital, patient = patientPat, department = oncology,   deptName = "Oncology",   open = True, doctors = [], observers = [oncology],   entries = [])
+  reqOnc <- submit patientPat (exerciseCmd recOnc RequestShareWithDoctor with by = patientPat, newDoc = drAlice)
+  recOnc <- submitMulti [hospital, oncology] [] (exerciseCmd reqOnc ApproveShare)
+  recOnc <- submitMulti [hospital, patientPat] [] (exerciseCmd recOnc AddEntry with doctor = drAlice, note = "Initial oncology intake")
+  reqOnc <- submit patientPat (exerciseCmd recOnc RequestShareWithDoctor with by = patientPat, newDoc = drBarbara)
+  recOnc <- submitMulti [hospital, oncology] [] (exerciseCmd reqOnc ApproveShare)
+  recOnc <- submitMulti [hospital, patientPat] [] (exerciseCmd recOnc AddEntry with doctor = drAlice, note = "Cancer Free")
+
+  recDer <- submitMulti [hospital, patientPat] [] (createCmd MedicalRecord with recordId = "rec-der-001", hospital, patient = patientPat, department = derm,       deptName = "Dermatology", open = True, doctors = [], observers = [derm],       entries = [])
+  reqDer <- submit patientPat (exerciseCmd recDer RequestShareWithDoctor with by = patientPat, newDoc = drBob)
+  recDer <- submitMulti [hospital, derm] [] (exerciseCmd reqDer ApproveShare)
+  recDer <- submitMulti [hospital, patientPat] [] (exerciseCmd recDer AddEntry with doctor = drBob, note = "Skin rash evaluation")
+
+  --_ <- submitMulti [hospital, patientPat] [] (exerciseCmd recOnc Close)
+  
+  pure ()

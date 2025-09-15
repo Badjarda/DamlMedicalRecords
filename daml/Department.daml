@@ -1,0 +1,37 @@
+module Department where
+
+template Department
+  with
+    department : Party
+    hospital   : Party
+    name       : Text
+  where
+    signatory department
+    observer  hospital
+    key (department, hospital) : (Party, Party)
+    maintainer key._1
+
+    nonconsuming choice AddDoctor : ContractId DoctorInDepartment
+      with
+        admin  : Party   -- department party
+        doctor : Party
+      controller admin
+      do
+        assertMsg "Only the department party can add doctors" (admin == department)
+        create DoctorInDepartment with department, hospital, doctor, deptName = name
+
+template DoctorInDepartment
+  with
+    department : Party
+    hospital   : Party
+    doctor     : Party
+    deptName   : Text
+  where
+    signatory department
+    observer  hospital, doctor
+    key (department, doctor) : (Party, Party)
+    maintainer key._1
+
+    choice Remove : ()
+      controller department, doctor
+      do return ()

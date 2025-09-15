@@ -1,0 +1,12 @@
+module Interface.Common.Types where
+
+data RecordView = RecordView
+  with
+    patient      : Party
+    hospital     : Party
+    department   : Text
+    open         : Bool
+    doctors      : [Party]
+    observers    : [Party]
+    entriesCount : Int
+  deriving (Eq, Show)

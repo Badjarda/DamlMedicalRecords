@@ -1,0 +1,16 @@
+module Patient where
+
+template PatientProfile
+  with
+    patient : Party
+    name    : Text
+    birthday     : Date
+  where
+    signatory patient
+
+template PatientEnrollment
+  with
+    hospital : Party
+    patient  : Party
+  where
+    signatory hospital, patient

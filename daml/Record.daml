@@ -1,0 +1,119 @@
+module Record where
+
+import DA.List (elem, dedup)
+import Interface.Common.Types (RecordView(..))
+import Interface.IRecord (IRecord(..))
+import Department (DoctorInDepartment(..))
+
+template MedicalRecord
+  with
+    recordId  : Text
+    patient : Party 
+    hospital : Party
+    department : Party
+    deptName : Text
+    open : Bool
+    doctors : [Party]
+    observers : [Party]
+    entries : [Text]
+  where
+    signatory hospital, patient
+    observer department, observers, doctors
+    key (recordId, patient) : (Text, Party)
+    maintainer key._2
+
+    interface instance IRecord for MedicalRecord where
+      view = RecordView 
+        with 
+          patient = this.patient
+          hospital = this.hospital
+          department = this.deptName
+          open = this.open
+          doctors = this.doctors
+          observers = this.observers
+          entriesCount = length this.entries
+
+    nonconsuming choice RequestShareWithDoctor : ContractId ShareRequest
+      with by : Party; newDoc : Party
+      controller patient
+      do 
+        assertMsg "Only patient may request" (by == patient)
+        create ShareRequest with recordCid = self, patient, hospital, department, deptName, doctor = newDoc
+
+    -- optional direct path (unused in the 2-step script)
+    nonconsuming choice ShareWithDoctor : ContractId MedicalRecord
+      with by : Party; newDoc : Party
+      controller hospital, patient
+      do 
+        assertMsg "Only patient or hospital may share" (by == patient || by == hospital)
+        exercise self GrantDoctorAccess with granter = by, doctor = newDoc
+
+    choice AddEntry : ContractId MedicalRecord
+      with doctor : Party; note : Text
+      controller hospital, patient
+      do 
+        assertMsg "Note cannot be empty" (note /= "")
+        assertMsg "Doctor not authorized on this record" (doctor `elem` doctors) 
+        create this with entries = entries ++ [note]
+
+    choice GrantDoctorAccess : ContractId MedicalRecord
+      with granter : Party; doctor : Party
+      controller granter
+      do 
+        assertMsg "Only patient or hospital may grant" (granter == patient || granter == hospital)
+        _ <- assertDoctorInDepartment department doctor deptName
+        create this with doctors = dedup (doctor :: doctors)
+    
+    choice GrantDoctorAccessUnsafe : ContractId MedicalRecord
+      with doctor : Party
+      controller hospital
+      do 
+        create this with doctors = dedup (doctor :: doctors)
+
+    choice AddObserver : ContractId MedicalRecord
+      with by : Party; watcher : Party
+      controller by
+      do 
+        assertMsg "Only patient or hospital may add observer" (by == patient || by == hospital) 
+        create this with observers = dedup (watcher :: observers)
+
+template ShareRequest
+  with 
+    recordCid : ContractId MedicalRecord
+    patient : Party
+    hospital : Party
+    department : Party
+    deptName : Text
+    doctor : Party
+  where
+    signatory patient
+    observer hospital, department, doctor
+
+    -- Make dept a co-controller so it clearly authorizes the key lookup
+    choice ApproveShare : ContractId MedicalRecord
+      controller hospital, department
+      do 
+        _ <- assertDoctorInDepartment department doctor deptName
+        exercise recordCid GrantDoctorAccessUnsafe with doctor 
+
+    choice Reject : ()
+      controller hospital
+      do archive self
+
+assertDoctorInDepartment : Party -> Party -> Text -> Update ()
+assertDoctorInDepartment department doctor expectedName = do
+  m <- lookupByKey @DoctorInDepartment (department, doctor)
+  case m of
+    None -> abort "Doctor is not a member of this department"
+    Some didCid -> 
+      do 
+        did <- fetch didCid
+        assertMsg "Department name mismatch" (did.deptName == expectedName)
+        pure ()
+
+createOrGetRecord : Text -> Party -> Party -> Party -> Text -> Update (ContractId MedicalRecord)
+createOrGetRecord recordId hospital patient department deptName = do
+  m <- lookupByKey @MedicalRecord (recordId, patient)
+  case m of
+    Some cid -> pure cid
+    None -> create MedicalRecord with recordId, hospital, patient, department, deptName, open = True, doctors = [], observers = [department], entries = []
