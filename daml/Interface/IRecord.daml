@@ -1,6 +1,0 @@
-module Interface.IRecord where
-
-import Interface.Common.Types qualified as Types (RecordView)
-
-interface IRecord where
-  viewtype Types.RecordView
